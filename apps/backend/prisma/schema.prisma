@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+}
+
+enum UidTargetType {
+  PROFILE
+  USERNAME
+  PAGE
+  GROUP
+  POST
+  SHARE
+  UNKNOWN
+}
+
+enum UidLookupStatus {
+  SUCCESS
+  FAILED
+  RATE_LIMITED
+  INVALID
+}
+
+model AdminUser {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  name         String?
+  role         AdminRole  @default(ADMIN)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  sessions     Session[]
+  auditLogs    AuditLog[]
+}
+
+model Session {
+  id               String    @id @default(cuid())
+  adminId          String
+  admin            AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  refreshTokenHash String    @unique
+  userAgent        String?
+  ipHash           String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@index([adminId])
+  @@index([expiresAt])
+}
+
+model AuditLog {
+  id        String     @id @default(cuid())
+  adminId   String?
+  admin     AdminUser? @relation(fields: [adminId], references: [id], onDelete: SetNull)
+  action    String
+  target    String?
+  meta      Json?
+  ipHash    String?
+  createdAt DateTime   @default(now())
+
+  @@index([createdAt])
+  @@index([adminId])
+}
+
+model PageView {
+  id          String   @id @default(cuid())
+  path        String
+  visitorHash String
+  sessionId   String
+  referrer    String?
+  source      String   @default("direct")
+  device      String   @default("desktop")
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([visitorHash, createdAt])
+  @@index([sessionId])
+  @@index([source])
+}
+
+model UidLookup {
+  id         String          @id @default(cuid())
+  inputUrl   String
+  uid        String?
+  username   String?
+  targetType UidTargetType   @default(UNKNOWN)
+  status     UidLookupStatus
+  errorCode  String?
+  cached     Boolean         @default(false)
+  ipHash     String?
+  durationMs Int?
+  createdAt  DateTime        @default(now())
+
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([targetType])
+}
+
+model SiteSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model RequestMetric {
+  id         String   @id @default(cuid())
+  method     String
+  route      String
+  statusCode Int
+  durationMs Int
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([statusCode, createdAt])
+}

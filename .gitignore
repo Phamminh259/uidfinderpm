@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.next/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+infrastructure/certbot/
+infrastructure/backups/
+uploads/
+*.tsbuildinfo
+.env.dev.example
+HANDOVER.MD
+docs/

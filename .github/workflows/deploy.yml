@@ -1,50 +1,75 @@
-# Mỗi lần đẩy code lên nhánh main: kiểm tra (build + test) rồi tự SSH vào VPS cập nhật website.
-# Thay cho chuỗi lệnh tay trên Ubuntu (git pull, docker compose build/up): xem docs/18-github-actions-tu-dong-deploy.md
+# Mỗi lần push code lên nhánh master:
+# 1. Kiểm tra build + test.
+# 2. Nếu thành công, tự động SSH vào VPS để cập nhật website.
 name: Deploy to VPS
 
 on:
   push:
-    branches: [main]
+    branches:
+      - master
+
   pull_request:
-    branches: [main]
-  workflow_dispatch:   # cho phép bấm "Run workflow" để deploy lại mà không cần commit mới
+    branches:
+      - master
+
+  workflow_dispatch:
 
 concurrency:
   group: deploy-${{ github.ref }}
-  cancel-in-progress: false   # lần deploy đang chạy luôn được chạy xong, lần sau xếp hàng
+  cancel-in-progress: false
 
 env:
-  # Domain production: nhúng vào frontend lúc build (canonical, sitemap, Open Graph) và dùng để kiểm tra sau deploy.
   SITE_URL: https://uidfinder.site
 
 jobs:
   check:
     name: Kiểm tra (build + test)
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
+
       - name: Cài thư viện
-        run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
-      - run: npx prisma generate --schema apps/backend/prisma/schema.prisma
-      - run: npm run build
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema apps/backend/prisma/schema.prisma
+
+      - name: Build
+        run: npm run build
         env:
           NEXT_PUBLIC_SITE_URL: ${{ env.SITE_URL }}
-      - run: npm run test
-      # Lint chạy nhưng chưa chặn deploy; bỏ continue-on-error khi lint đã sạch.
-      - run: npm run lint
+
+      - name: Test
+        run: npm run test
+
+      - name: Lint
+        run: npm run lint
         continue-on-error: true
 
   deploy:
     name: Cập nhật VPS
     needs: [check]
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+
+    # Chỉ deploy khi push master hoặc chạy workflow_dispatch trên master.
+    if: |
+      github.ref == 'refs/heads/master' &&
+      github.event_name != 'pull_request'
+
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
+
     steps:
       - uses: actions/checkout@v4
 
@@ -57,6 +82,7 @@ jobs:
           install -m 700 -d ~/.ssh
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+
           ssh-keyscan -p "${VPS_PORT:-22}" -H "$VPS_HOST" >> ~/.ssh/known_hosts
 
       - name: Chạy lệnh cập nhật trên VPS
@@ -66,16 +92,27 @@ jobs:
           VPS_PORT: ${{ secrets.VPS_PORT }}
           DEPLOY_SHA: ${{ github.sha }}
         run: |
-          # Script lấy từ chính commit này và chạy qua stdin của SSH: không cần sao chép file lên VPS.
-          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -p "${VPS_PORT:-22}" "$VPS_USER@$VPS_HOST" \
-            "DEPLOY_SHA=$DEPLOY_SHA BRANCH=main bash -s" < infrastructure/scripts/deploy-on-vps.sh
+          ssh -i ~/.ssh/deploy_key \
+            -o BatchMode=yes \
+            -p "${VPS_PORT:-22}" \
+            "$VPS_USER@$VPS_HOST" \
+            "DEPLOY_SHA=$DEPLOY_SHA BRANCH=master bash -s" \
+            < infrastructure/scripts/deploy-on-vps.sh
 
       - name: Kiểm tra website sau khi deploy
         run: |
-          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+          for i in $(seq 1 12); do
             code=$(curl -s -o /dev/null -w '%{http_code}' "${SITE_URL}/api/health" || true)
+
             echo "Lần $i: HTTP $code"
-            [ "$code" = "200" ] && exit 0
+
+            if [ "$code" = "200" ]; then
+              echo "Deploy thành công!"
+              exit 0
+            fi
+
             sleep 10
           done
-          echo "Website không phản hồi 200 sau khi deploy. Xem log container ở bước trước."; exit 1
+
+          echo "Website không phản hồi HTTP 200 sau khi deploy."
+          exit 1

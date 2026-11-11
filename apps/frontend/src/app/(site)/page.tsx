@@ -55,7 +55,7 @@ export default async function HomePage() {
         <div className="container-page py-12 sm:py-16">
           <div className="mx-auto max-w-3xl text-center">
             <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-5xl">
-              Tìm Facebook UID nhanh từ đường dẫn
+              Tìm Facebook UID nhanh từ đường dẫn.
             </h1>
             <p className="mt-4 text-lg leading-8 text-slate-600">
               Dán đường dẫn trang cá nhân, Page, nhóm hoặc bài viết Facebook để lấy UID. Miễn phí và không cần đăng nhập.

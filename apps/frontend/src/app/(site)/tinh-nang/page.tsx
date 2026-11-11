@@ -11,8 +11,9 @@ export const metadata = buildMetadata({
 const SUPPORTED = [
   ['Trang cá nhân', 'Dạng facebook.com/profile.php?id=… hoặc facebook.com/username'],
   ['Page', 'Trang công khai có username hoặc dạng /pages/tên/ID'],
-  ['Nhóm', 'Dạng facebook.com/groups/ID. Nhóm dùng slug cần xác định từ trang công khai'],
+  ['Nhóm', 'Dạng facebook.com/groups/ID. Bài viết trong nhóm trả ID bài viết kèm ID nhóm. Nhóm dùng tên rút gọn cần đọc từ trang công khai'],
   ['Bài viết', 'Dạng /username/posts/ID hoặc permalink.php?story_fbid=…'],
+  ['Reel, ảnh, video', 'Dạng /reel/ID, /watch/?v=ID, photo.php?fbid=ID, /username/photos/…/ID, /username/videos/ID'],
   ['Liên kết chia sẻ', 'Dạng facebook.com/share/… và fb.watch, được xử lý qua chuyển hướng hợp lệ'],
 ];
 

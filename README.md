@@ -56,6 +56,7 @@ Website: http://localhost:3000 · Admin: http://localhost:3000/admin
 | 14 | [Tạo admin ban đầu](docs/14-tao-admin-ban-dau.md) |
 | 15 | [SEO: tên site, title, mô tả, favicon](docs/15-seo-va-favicon.md) |
 | 16 | [Triển khai: GitHub, Actions, VPS, Namecheap (uidfinder.site)](docs/16-trien-khai-github-actions-vps-namecheap.md) |
+| 17 | [Cập nhật code: máy → GitHub → VPS, chẩn đoán lấy ID](docs/17-cap-nhat-code-len-vps.md) |
 
 ## Bảo mật
 

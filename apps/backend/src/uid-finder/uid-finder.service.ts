@@ -1,11 +1,12 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { RedisService } from '../redis/redis.service';
-import { UID_ERROR_CODES, UidResult, UidTargetType } from '../common/types';
+import { UID_ERROR_CODES, UidResult, toDbTargetType } from '../common/types';
 import {
   FacebookBlockedError,
   FacebookService,
   FacebookUpstreamError,
+  FetchAttempt,
 } from '../facebook/facebook.service';
 import { SsrfBlockedError } from '../facebook/ssrf.guard';
 import {
@@ -15,6 +16,9 @@ import {
 } from '../facebook/url-parser';
 
 type LookupStatus = 'SUCCESS' | 'FAILED' | 'RATE_LIMITED' | 'INVALID';
+
+// Đổi tiền tố khi thay đổi cách tính kết quả để bỏ qua cache cũ.
+const CACHE_PREFIX = 'uid:v2:';
 
 @Injectable()
 export class UidFinderService {
@@ -41,7 +45,7 @@ export class UidFinderService {
       throw this.error(HttpStatus.TOO_MANY_REQUESTS, UID_ERROR_CODES.RATE_LIMITED, 'Bạn thao tác quá nhanh, vui lòng thử lại sau ít phút');
     }
 
-    // 2. Phân tích URL
+    // 2. Phân tích link
     let parsed: ParsedFacebookUrl;
     try {
       parsed = parseFacebookUrl(input);
@@ -52,7 +56,7 @@ export class UidFinderService {
     }
 
     // 3. Cache
-    const cacheKey = `uid:${parsed.normalizedUrl}`;
+    const cacheKey = `${CACHE_PREFIX}${parsed.normalizedUrl}`;
     const cachedRaw = await this.redis.get(cacheKey).catch(() => null);
     if (cachedRaw) {
       const cached = JSON.parse(cachedRaw) as UidResult;
@@ -60,7 +64,7 @@ export class UidFinderService {
       return { ...cached, cached: true };
     }
 
-    // 4. Xác định UID
+    // 4. Xác định ID
     try {
       const result = await this.resolve(parsed);
       await this.redis.set(cacheKey, JSON.stringify(result), this.cacheTtl).catch(() => undefined);
@@ -79,30 +83,63 @@ export class UidFinderService {
       try {
         current = parseFacebookUrl(finalUrl);
       } catch {
-        // URL sau redirect không nhận diện được: tải trang để tìm UID.
+        // Link sau chuyển hướng không nhận diện được: tải trang để tìm ID.
         current = { ...current, normalizedUrl: finalUrl, needsRedirect: false };
       }
     }
 
     if (current.uid) return this.build(current, current.uid);
 
-    const uid = await this.facebook.extractUidFromPage(current.normalizedUrl);
+    const { uid, attempts } = await this.facebook.findId(current.normalizedUrl, current.type);
     if (!uid) {
+      // Ghi chẩn đoán (không ghi link, không ghi nội dung trang) để xem bằng `docker compose logs backend`.
+      this.logger.warn(
+        `Không tìm thấy ID, loại=${current.type}, các lần thử=${JSON.stringify(this.summarize(attempts))}`,
+      );
+      const loginWall = attempts.some((a) => a.note === 'login-wall');
       throw this.error(
         HttpStatus.NOT_FOUND,
         UID_ERROR_CODES.NOT_FOUND,
-        'Không tìm thấy UID. Đối tượng có thể không công khai hoặc không tồn tại',
+        this.notFoundMessage(current, loginWall),
       );
     }
     return this.build(current, uid);
+  }
+
+  private summarize(attempts: FetchAttempt[]) {
+    return attempts.map((a) => ({
+      host: a.finalUrl?.split('/')[0] ?? null,
+      status: a.status,
+      note: a.note,
+      bytes: a.bytes,
+    }));
+  }
+
+  private notFoundMessage(p: ParsedFacebookUrl, loginWall: boolean): string {
+    if (loginWall) {
+      return 'Facebook yêu cầu đăng nhập để xem nội dung này nên không thể đọc ID. Đối tượng có thể ở chế độ riêng tư, hoặc Facebook đang chặn truy cập từ máy chủ.';
+    }
+    switch (p.type) {
+      case 'POST':
+      case 'PHOTO':
+      case 'VIDEO':
+      case 'REEL':
+      case 'SHARE':
+        return 'Không đọc được ID từ link này. Link bài viết dạng "pfbid" không chứa dãy số ID và Facebook không cho máy chủ đọc trang bài viết. Hãy thử link có dạng .../posts/<dãy số>, permalink.php?story_fbid=<dãy số>, hoặc link ảnh, video, reel có chứa dãy số.';
+      case 'GROUP':
+        return 'Không đọc được ID của nhóm này. Nhóm có thể ở chế độ riêng tư hoặc Facebook không công khai ID. Hãy thử link nhóm dạng facebook.com/groups/<dãy số>.';
+      default:
+        return 'Không tìm thấy UID. Đối tượng có thể không công khai hoặc không tồn tại';
+    }
   }
 
   private build(p: ParsedFacebookUrl, uid: string): UidResult {
     return {
       uid,
       url: p.normalizedUrl,
-      username: p.type === 'POST' ? null : p.username,
+      username: p.username,
       type: p.type,
+      related: p.related,
       cached: false,
     };
   }
@@ -154,7 +191,7 @@ export class UidFinderService {
           inputUrl: args.input.slice(0, 2048),
           uid: args.result?.uid ?? null,
           username: args.result?.username ?? null,
-          targetType: (args.result?.type ?? 'UNKNOWN') as UidTargetType,
+          targetType: toDbTargetType(args.result?.type ?? 'UNKNOWN'),
           status: args.status,
           errorCode: args.errorCode ?? null,
           cached: args.cached ?? false,

@@ -1,4 +1,4 @@
-import { extractIdFromHtml } from './html-extract';
+import { extractIdFromHtml, idFromUrl } from './html-extract';
 
 describe('extractIdFromHtml', () => {
   it('đọc ID nhóm từ link chuẩn (canonical)', () => {
@@ -65,5 +65,17 @@ describe('extractIdFromHtml', () => {
 
   it('không nhận post_id dạng ghép số_số', () => {
     expect(extractIdFromHtml('{"post_id":"12345_67890"}', 'POST')).toBeNull();
+  });
+
+  it('nhóm: đọc groupId (camelCase) và đối tượng __typename Group', () => {
+    expect(extractIdFromHtml('{"groupId":"123456789012345"}', 'GROUP')?.id).toBe('123456789012345');
+    expect(extractIdFromHtml('{"__typename":"Group","id":"123456789012345"}', 'GROUP')?.id).toBe('123456789012345');
+    expect(extractIdFromHtml('{\\"id\\":\\"123456789012345\\",\\"__typename\\":\\"Group\\"}', 'GROUP')?.id).toBe('123456789012345');
+  });
+
+  it('idFromUrl: địa chỉ sau chuyển hướng', () => {
+    expect(idFromUrl('https://m.facebook.com/groups/123456789012345/', 'GROUP')?.id).toBe('123456789012345');
+    expect(idFromUrl('https://m.facebook.com/groups/mygroup', 'GROUP')).toBeNull();
+    expect(idFromUrl('https://m.facebook.com/profile.php?id=100012345678901', 'GROUP')).toBeNull();
   });
 });

@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { DatabaseModule } from './database/database.module';
 import { FacebookModule } from './facebook/facebook.module';
 import { HealthModule } from './health/health.module';
+import { IpModule } from './ip/ip.module';
 import { RedisModule } from './redis/redis.module';
 import { UidFinderModule } from './uid-finder/uid-finder.module';
 
@@ -13,6 +14,7 @@ import { UidFinderModule } from './uid-finder/uid-finder.module';
   imports: [
     DatabaseModule,
     RedisModule,
+    IpModule,
     AuditModule,
     AuthModule,
     HealthModule,

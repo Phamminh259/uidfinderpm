@@ -103,3 +103,121 @@ export function Table({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
     </div>
   );
 }
+
+export interface LineSeries {
+  key: string;
+  name: string;
+  color: string;
+  dash?: string;
+  values: number[];
+}
+
+function niceMax(v: number): number {
+  if (v <= 5) return 5;
+  const pow = 10 ** Math.floor(Math.log10(v));
+  const n = v / pow;
+  const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
+  return step * pow;
+}
+
+/** Biểu đồ đường nhiều chuỗi, có chú thích bật/tắt từng chuỗi và gợi ý số liệu khi rê chuột. */
+export function LineChart({
+  labels,
+  series,
+  hidden,
+  onToggle,
+}: {
+  labels: string[];
+  series: LineSeries[];
+  hidden: string[];
+  onToggle: (key: string) => void;
+}) {
+  const w = 760;
+  const h = 240;
+  const left = 44;
+  const right = 12;
+  const top = 12;
+  const bottom = 28;
+  const visible = series.filter((s) => !hidden.includes(s.key));
+  const max = niceMax(Math.max(0, ...visible.flatMap((s) => s.values)));
+  const n = labels.length;
+  const x = (i: number) => left + (n <= 1 ? 0 : (i / (n - 1)) * (w - left - right));
+  const y = (v: number) => top + (1 - v / max) * (h - top - bottom);
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(max * f));
+  const step = Math.max(1, Math.ceil(n / 8));
+
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap gap-2">
+        {series.map((s) => {
+          const off = hidden.includes(s.key);
+          return (
+            <button
+              key={s.key}
+              type="button"
+              aria-pressed={!off}
+              onClick={() => onToggle(s.key)}
+              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${
+                off ? 'border-slate-200 text-slate-400' : 'border-slate-300 text-slate-800'
+              }`}
+            >
+              <svg width="22" height="8" aria-hidden="true">
+                <line x1="0" x2="22" y1="4" y2="4" stroke={off ? '#cbd5e1' : s.color} strokeWidth="3" strokeDasharray={s.dash} />
+              </svg>
+              {s.name}
+            </button>
+          );
+        })}
+      </div>
+      <div className="overflow-x-auto">
+        <svg viewBox={`0 0 ${w} ${h}`} className="min-w-[600px] w-full" role="img" aria-label="Biểu đồ 30 ngày gần nhất">
+          {ticks.map((t) => (
+            <g key={t}>
+              <line x1={left} x2={w - right} y1={y(t)} y2={y(t)} stroke="#e2e8f0" />
+              <text x={left - 6} y={y(t) + 4} textAnchor="end" fontSize="10" fill="#64748b">
+                {t.toLocaleString('vi-VN')}
+              </text>
+            </g>
+          ))}
+          {labels.map((l, i) =>
+            i % step === 0 || i === n - 1 ? (
+              <text key={l} x={x(i)} y={h - 8} textAnchor="middle" fontSize="10" fill="#64748b">
+                {l.slice(5).split('-').reverse().join('/')}
+              </text>
+            ) : null,
+          )}
+          {visible.map((s) => (
+            <polyline
+              key={s.key}
+              fill="none"
+              stroke={s.color}
+              strokeWidth="2.5"
+              strokeDasharray={s.dash}
+              strokeLinejoin="round"
+              points={s.values.map((v, i) => `${x(i)},${y(v)}`).join(' ')}
+            />
+          ))}
+          {labels.map((l, i) => {
+            const slot = (w - left - right) / Math.max(1, n - 1);
+            return (
+              <rect key={l} x={x(i) - slot / 2} y={top} width={slot} height={h - top - bottom} fill="transparent">
+                <title>{`${l}\n${series.map((s) => `${s.name}: ${s.values[i].toLocaleString('vi-VN')}`).join('\n')}`}</title>
+              </rect>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+const BADGE: Record<string, string> = {
+  green: 'bg-emerald-100 text-emerald-800',
+  amber: 'bg-amber-100 text-amber-900',
+  red: 'bg-red-100 text-red-800',
+  slate: 'bg-slate-100 text-slate-700',
+};
+
+export function Badge({ tone, children }: { tone: 'green' | 'amber' | 'red' | 'slate'; children: ReactNode }) {
+  return <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${BADGE[tone]}`}>{children}</span>;
+}

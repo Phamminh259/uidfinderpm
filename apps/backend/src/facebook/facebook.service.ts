@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { UidTargetType } from '../common/types';
-import { extractIdFromHtml } from './html-extract';
+import { extractIdFromHtml, idFromUrl } from './html-extract';
 import { assertSafeUrl, SsrfBlockedError } from './ssrf.guard';
 
 export class FacebookBlockedError extends Error {
@@ -85,9 +85,16 @@ export class FacebookService {
       attempts.push(attempt);
 
       try {
-        const html = await this.fetchHtml(candidate, attempt, deadline);
-        if (html === null) continue;
+        const page = await this.fetchHtml(candidate, attempt, deadline);
+        if (page === null) continue;
         sawContent = true;
+        const html = page.html;
+        // Nhóm dạng tên thường được Facebook chuyển hướng sang /groups/<số>/: đọc ID ngay từ địa chỉ cuối.
+        const fromRedirect = idFromUrl(page.finalUrl, type);
+        if (fromRedirect) {
+          attempt.matched = fromRedirect.pattern;
+          return { uid: fromRedirect.id, attempts };
+        }
         const hit = extractIdFromHtml(html, type);
         if (hit) {
           attempt.matched = hit.pattern;
@@ -123,7 +130,7 @@ export class FacebookService {
     startUrl: string,
     attempt: FetchAttempt,
     deadline: number,
-  ): Promise<string | null> {
+  ): Promise<{ html: string; finalUrl: string } | null> {
     let current = startUrl;
     for (let i = 0; i <= MAX_REDIRECTS; i++) {
       if (Date.now() > deadline) {
@@ -163,7 +170,7 @@ export class FacebookService {
       const html = await this.readLimited(res);
       attempt.bytes = html.length;
       if (/^\/(login|checkpoint)(\/|\.php|$)/.test(safe.pathname)) attempt.note = 'login-wall';
-      return html;
+      return { html, finalUrl: safe.toString() };
     }
     attempt.note = 'too-many-redirects';
     throw new FacebookUpstreamError('Quá nhiều lần chuyển hướng');

@@ -2,6 +2,7 @@ import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
 import { IsOptional, IsString, MaxLength } from 'class-validator';
 import { Request } from 'express';
 import { clientIp, hashWithSalt } from '../common/hash.util';
+import { IpService } from '../ip/ip.service';
 import { RedisService } from '../redis/redis.service';
 import { AnalyticsService } from './analytics.service';
 
@@ -25,6 +26,7 @@ export class AnalyticsController {
   constructor(
     private readonly analytics: AnalyticsService,
     private readonly redis: RedisService,
+    private readonly ips: IpService,
   ) {}
 
   @Post('collect')
@@ -32,7 +34,9 @@ export class AnalyticsController {
   async collect(@Body() dto: CollectDto, @Req() req: Request): Promise<void> {
     const salt = process.env.ANALYTICS_IP_SALT ?? '';
     const ua = req.headers['user-agent'] ?? '';
-    const visitorHash = hashWithSalt(`${clientIp(req)}|${ua}`, salt);
+    const ip = clientIp(req);
+    const visitorHash = hashWithSalt(`${ip}|${ua}`, salt);
+    const ipHash = hashWithSalt(ip, salt);
 
     // Chống spam: tối đa 120 lượt ghi/phút cho mỗi người truy cập.
     const n = await this.redis
@@ -48,7 +52,9 @@ export class AnalyticsController {
       referrer: dto.referrer,
       sessionId: dto.sessionId,
       visitorHash,
+      ipHash,
       userAgent: ua,
     });
+    await this.ips.touch(ip);
   }
 }

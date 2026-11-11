@@ -8,6 +8,7 @@ interface UidResult {
   url: string;
   username: string | null;
   type: string;
+  related?: { id: string; role: 'GROUP' | 'OWNER' } | null;
   cached: boolean;
 }
 
@@ -17,6 +18,9 @@ const TYPE_LABEL: Record<string, string> = {
   PAGE: 'Page',
   GROUP: 'Nhóm',
   POST: 'Bài viết',
+  REEL: 'Reel',
+  PHOTO: 'Ảnh',
+  VIDEO: 'Video',
   SHARE: 'Liên kết chia sẻ',
   UNKNOWN: 'Không xác định',
 };
@@ -75,12 +79,13 @@ export function UidForm() {
     }
   }
 
-  const openHref =
-    result && (result.type === 'POST' || result.type === 'SHARE')
+  const openHref = !result
+    ? '#'
+    : ['POST', 'SHARE', 'REEL', 'PHOTO', 'VIDEO'].includes(result.type)
       ? result.url
-      : result
-        ? `https://www.facebook.com/profile.php?id=${result.uid}`
-        : '#';
+      : result.type === 'GROUP'
+        ? `https://www.facebook.com/groups/${result.uid}`
+        : `https://www.facebook.com/profile.php?id=${result.uid}`;
 
   return (
     <div className="w-full">
@@ -152,6 +157,12 @@ export function UidForm() {
                 <dt className="text-slate-500">Username</dt>
                 <dd className="font-medium text-slate-900">{result.username ?? 'Không có'}</dd>
               </div>
+              {result.related && (
+                <div className="sm:col-span-2">
+                  <dt className="text-slate-500">{result.related.role === 'GROUP' ? 'ID nhóm' : 'ID chủ sở hữu'}</dt>
+                  <dd className="break-all font-medium text-slate-900">{result.related.id}</dd>
+                </div>
+              )}
               <div className="sm:col-span-2">
                 <dt className="text-slate-500">Đường dẫn Facebook</dt>
                 <dd className="break-all font-medium text-slate-900">{result.url}</dd>

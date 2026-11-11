@@ -1,0 +1,81 @@
+# Mỗi lần đẩy code lên nhánh main: kiểm tra (build + test) rồi tự SSH vào VPS cập nhật website.
+# Thay cho chuỗi lệnh tay trên Ubuntu (git pull, docker compose build/up): xem docs/18-github-actions-tu-dong-deploy.md
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:   # cho phép bấm "Run workflow" để deploy lại mà không cần commit mới
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false   # lần deploy đang chạy luôn được chạy xong, lần sau xếp hàng
+
+env:
+  # Domain production: nhúng vào frontend lúc build (canonical, sitemap, Open Graph) và dùng để kiểm tra sau deploy.
+  SITE_URL: https://uidfinder.site
+
+jobs:
+  check:
+    name: Kiểm tra (build + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Cài thư viện
+        run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - run: npx prisma generate --schema apps/backend/prisma/schema.prisma
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_SITE_URL: ${{ env.SITE_URL }}
+      - run: npm run test
+      # Lint chạy nhưng chưa chặn deploy; bỏ continue-on-error khi lint đã sạch.
+      - run: npm run lint
+        continue-on-error: true
+
+  deploy:
+    name: Cập nhật VPS
+    needs: [check]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Chuẩn bị SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${VPS_PORT:-22}" -H "$VPS_HOST" >> ~/.ssh/known_hosts
+
+      - name: Chạy lệnh cập nhật trên VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          # Script lấy từ chính commit này và chạy qua stdin của SSH: không cần sao chép file lên VPS.
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -p "${VPS_PORT:-22}" "$VPS_USER@$VPS_HOST" \
+            "DEPLOY_SHA=$DEPLOY_SHA BRANCH=main bash -s" < infrastructure/scripts/deploy-on-vps.sh
+
+      - name: Kiểm tra website sau khi deploy
+        run: |
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "${SITE_URL}/api/health" || true)
+            echo "Lần $i: HTTP $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "Website không phản hồi 200 sau khi deploy. Xem log container ở bước trước."; exit 1

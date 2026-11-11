@@ -41,84 +41,19 @@ export class AnalyticsService {
     referrer?: string;
     sessionId: string;
     visitorHash: string;
+    ipHash?: string;
     userAgent?: string;
   }): Promise<void> {
     await this.prisma.pageView.create({
       data: {
         path: args.path.slice(0, 300),
         visitorHash: args.visitorHash,
+        ipHash: args.ipHash,
         sessionId: args.sessionId.slice(0, 64),
         referrer: args.referrer?.slice(0, 500),
         source: detectSource(args.referrer),
         device: detectDevice(args.userAgent),
       },
     });
-  }
-
-  async traffic() {
-    const today = startOfDayVN(0);
-    const yesterday = startOfDayVN(1);
-    const d7 = startOfDayVN(6);
-    const d30 = startOfDayVN(29);
-
-    const [viewsToday, viewsYesterday, views7, views30, total, visitors, sessions, sources, devices, series] =
-      await Promise.all([
-        this.prisma.pageView.count({ where: { createdAt: { gte: today } } }),
-        this.prisma.pageView.count({ where: { createdAt: { gte: yesterday, lt: today } } }),
-        this.prisma.pageView.count({ where: { createdAt: { gte: d7 } } }),
-        this.prisma.pageView.count({ where: { createdAt: { gte: d30 } } }),
-        this.prisma.pageView.count(),
-        this.prisma.$queryRaw<{ n: number }[]>`SELECT COUNT(DISTINCT "visitorHash")::int AS n FROM "PageView"`,
-        this.prisma.$queryRaw<{ n: number }[]>`SELECT COUNT(DISTINCT "sessionId")::int AS n FROM "PageView"`,
-        this.prisma.pageView.groupBy({ by: ['source'], _count: { _all: true }, where: { createdAt: { gte: d30 } } }),
-        this.prisma.pageView.groupBy({ by: ['device'], _count: { _all: true }, where: { createdAt: { gte: d30 } } }),
-        this.prisma.$queryRaw<{ day: string; views: number; visitors: number }[]>`
-          SELECT to_char(("createdAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYY-MM-DD') AS day,
-                 COUNT(*)::int AS views,
-                 COUNT(DISTINCT "visitorHash")::int AS visitors
-          FROM "PageView"
-          WHERE "createdAt" >= ${d30}
-          GROUP BY 1
-          ORDER BY 1`,
-      ]);
-
-    return {
-      viewsToday,
-      viewsYesterday,
-      views7Days: views7,
-      views30Days: views30,
-      totalViews: total,
-      estimatedVisitors: visitors[0]?.n ?? 0,
-      sessions: sessions[0]?.n ?? 0,
-      sources: sources.map((s) => ({ source: s.source, count: s._count._all })),
-      devices: devices.map((d) => ({ device: d.device, count: d._count._all })),
-      series,
-    };
-  }
-
-  async uidStats() {
-    const [total, success, failed, rateLimited, invalid, byType] = await Promise.all([
-      this.prisma.uidLookup.count(),
-      this.prisma.uidLookup.count({ where: { status: 'SUCCESS' } }),
-      this.prisma.uidLookup.count({ where: { status: 'FAILED' } }),
-      this.prisma.uidLookup.count({ where: { status: 'RATE_LIMITED' } }),
-      this.prisma.uidLookup.count({ where: { status: 'INVALID' } }),
-      this.prisma.uidLookup.groupBy({
-        by: ['targetType'],
-        _count: { _all: true },
-        where: { status: 'SUCCESS' },
-        orderBy: { _count: { targetType: 'desc' } },
-      }),
-    ]);
-    const attempts = success + failed;
-    return {
-      total,
-      success,
-      failed,
-      invalid,
-      rateLimited,
-      successRate: attempts > 0 ? Math.round((success / attempts) * 1000) / 10 : null,
-      byType: byType.map((t) => ({ type: t.targetType, count: t._count._all })),
-    };
   }
 }

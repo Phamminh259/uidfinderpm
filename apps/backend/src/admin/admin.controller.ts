@@ -18,8 +18,12 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import * as argon2 from 'argon2';
-import { IsBoolean, IsEmail, IsIn, IsObject, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
-import { AnalyticsService } from '../analytics/analytics.service';
+import { IsBoolean, IsEmail, IsIn, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { DashboardService } from '../analytics/dashboard.service';
+import { RangeKey } from '../analytics/ranges';
+import { clientIp } from '../common/hash.util';
+import { IpService } from '../ip/ip.service';
+import { Limits, LimitsService } from '../ip/limits.service';
 import { AuditService } from '../audit/audit.service';
 import { AuthedRequest, JwtAuthGuard, Roles, RolesGuard } from '../auth/auth.guard';
 import { AuthService } from '../auth/auth.service';
@@ -66,6 +70,46 @@ class UpdateAdminDto {
   password?: string;
 }
 
+class BlockIpDto {
+  @IsString()
+  @MaxLength(64)
+  ip!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  reason?: string;
+}
+
+class UnblockIpDto {
+  @IsString()
+  @MaxLength(64)
+  ip!: string;
+}
+
+class IpLimitDto {
+  @IsString()
+  @MaxLength(64)
+  ip!: string;
+
+  /** null = quay về giới hạn chung. 0 = không cho tra cứu. */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(600)
+  limitPerMinute?: number | null;
+}
+
+class LimitsDto {
+  @IsOptional() @IsInt() uidPerMinute?: number;
+  @IsOptional() @IsInt() uidPerHour?: number;
+  @IsOptional() @IsInt() requestsPerDay?: number;
+  @IsOptional() @IsInt() rateLimitedHits?: number;
+  @IsOptional() @IsInt() invalidHits?: number;
+  @IsOptional() @IsInt() failPercent?: number;
+  @IsOptional() @IsInt() failMinAttempts?: number;
+}
+
 class SettingsDto {
   @IsObject()
   settings!: Record<string, unknown>;
@@ -91,21 +135,83 @@ export const SETTING_KEYS = [
 export class AdminController {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly analytics: AnalyticsService,
+    private readonly dashboard: DashboardService,
+    private readonly ips: IpService,
+    private readonly limits: LimitsService,
     private readonly health: HealthService,
     private readonly audit: AuditService,
     private readonly auth: AuthService,
   ) {}
 
   // ----- Thống kê -----
-  @Get('dashboard/traffic')
-  traffic() {
-    return this.analytics.traffic();
+  /** Số liệu theo hôm nay, 2 giờ qua, 7 ngày, 30 ngày; thêm `from`/`to` (YYYY-MM-DD, giờ Việt Nam) cho khoảng tùy chọn. */
+  @Get('dashboard/summary')
+  summary(@Query('from') from?: string, @Query('to') to?: string) {
+    if ((from && !to) || (!from && to)) throw new BadRequestException('Cần chọn cả ngày bắt đầu và ngày kết thúc');
+    return this.dashboard.summary(from && to ? { from, to } : undefined);
   }
 
-  @Get('dashboard/uid')
-  uid() {
-    return this.analytics.uidStats();
+  @Get('dashboard/series')
+  series() {
+    return this.dashboard.series30();
+  }
+
+  // ----- Địa chỉ IP -----
+  @Get('ips')
+  ipList(
+    @Query('range') range?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('q') q?: string,
+    @Query('filter') filter?: string,
+    @Query('page') page?: string,
+  ) {
+    const allowedRanges: RangeKey[] = ['2h', '24h', 'today', '7d', '30d', 'custom'];
+    const r = (range ?? '24h') as RangeKey;
+    if (!allowedRanges.includes(r)) throw new BadRequestException('Khoảng thời gian không hợp lệ');
+    const f = filter === 'suspicious' || filter === 'blocked' ? filter : 'all';
+    return this.dashboard.ipList({ range: r, from, to, q, filter: f, page: Number(page) || 1 });
+  }
+
+  @Post('ips/block')
+  @HttpCode(200)
+  async blockIp(@Body() dto: BlockIpDto, @Req() req: AuthedRequest) {
+    const ip = this.ips.parseIp(dto.ip);
+    if (ip === clientIp(req)) throw new ForbiddenException('Không thể chặn chính địa chỉ IP bạn đang dùng');
+    await this.ips.block(ip, dto.reason);
+    await this.audit.log(req.user.sub, 'IP_BLOCK', ip, { reason: dto.reason });
+    return { ip, blocked: true };
+  }
+
+  @Post('ips/unblock')
+  @HttpCode(200)
+  async unblockIp(@Body() dto: UnblockIpDto, @Req() req: AuthedRequest) {
+    const ip = this.ips.parseIp(dto.ip);
+    await this.ips.unblock(ip);
+    await this.audit.log(req.user.sub, 'IP_UNBLOCK', ip);
+    return { ip, blocked: false };
+  }
+
+  @Put('ips/limit')
+  async setIpLimit(@Body() dto: IpLimitDto, @Req() req: AuthedRequest) {
+    const ip = this.ips.parseIp(dto.ip);
+    const limit = dto.limitPerMinute ?? null;
+    await this.ips.setLimit(ip, limit);
+    await this.audit.log(req.user.sub, 'IP_LIMIT_SET', ip, { limitPerMinute: limit });
+    return { ip, limitPerMinute: limit };
+  }
+
+  // ----- Giới hạn request chung -----
+  @Get('limits')
+  getLimits(): Promise<Limits> {
+    return this.limits.get();
+  }
+
+  @Put('limits')
+  async putLimits(@Body() dto: LimitsDto, @Req() req: AuthedRequest): Promise<Limits> {
+    const updated = await this.limits.update({ ...dto });
+    await this.audit.log(req.user.sub, 'LIMITS_UPDATE', undefined, { ...dto });
+    return updated;
   }
 
   @Get('dashboard/system')

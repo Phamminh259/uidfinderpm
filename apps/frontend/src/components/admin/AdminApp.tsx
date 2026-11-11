@@ -4,11 +4,12 @@ import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { AdminUser, login, logout, restoreSession } from '@/lib/adminApi';
 import { AdminsPanel } from './AdminsPanel';
 import { DashboardPanel } from './DashboardPanel';
+import { IpsPanel } from './IpsPanel';
 import { LogsPanel } from './LogsPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { SystemPanel } from './SystemPanel';
 
-type Tab = 'dashboard' | 'system' | 'settings' | 'admins' | 'logs';
+type Tab = 'dashboard' | 'ips' | 'system' | 'settings' | 'admins' | 'logs';
 
 export function AdminApp() {
   const [user, setUser] = useState<AdminUser | null>(null);
@@ -33,6 +34,7 @@ export function AdminApp() {
 
   const tabs: { id: Tab; label: string; superOnly?: boolean }[] = [
     { id: 'dashboard', label: 'Tổng quan' },
+    { id: 'ips', label: 'IP & giới hạn' },
     { id: 'system', label: 'Hệ thống' },
     { id: 'settings', label: 'Cấu hình website' },
     { id: 'admins', label: 'Quản trị viên', superOnly: true },
@@ -74,6 +76,7 @@ export function AdminApp() {
 
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-6">
         {tab === 'dashboard' && <DashboardPanel />}
+        {tab === 'ips' && <IpsPanel />}
         {tab === 'system' && <SystemPanel />}
         {tab === 'settings' && <SettingsPanel />}
         {tab === 'admins' && user.role === 'SUPER_ADMIN' && <AdminsPanel currentId={user.id} />}

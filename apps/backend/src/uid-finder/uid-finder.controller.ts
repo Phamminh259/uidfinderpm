@@ -11,7 +11,8 @@ export class UidFinderController {
   @Post('lookup')
   @HttpCode(200)
   lookup(@Body() dto: LookupUidDto, @Req() req: Request) {
-    const ipHash = hashWithSalt(clientIp(req), process.env.ANALYTICS_IP_SALT ?? '');
-    return this.service.lookup(dto.url, ipHash);
+    const ip = clientIp(req);
+    const ipHash = hashWithSalt(ip, process.env.ANALYTICS_IP_SALT ?? '');
+    return this.service.lookup(dto.url, ipHash, ip);
   }
 }

@@ -43,11 +43,15 @@ const GROUP_RULES: Rule[] = [
   key('groupID'),
   key('group_id'),
   key('groupid'),
+  key('groupId'),
   raw('fb://group/id', /fb:\/\/group\/(\d{5,})/),
   raw('fb://group?id', /fb:\/\/group\/\?id=(\d{5,})/),
   raw('meta fb://group', /content="fb:\/\/group\/(\d{5,})"/),
   raw('json:entity_id', /"entity_id"\s*:\s*"(\d{5,})"/),
   key('entity_id'),
+  // Ưu tiên thấp nhất: đối tượng kiểu Group trong dữ liệu trang (lấy khớp đầu tiên).
+  raw('json:Group.id', /\\?"__typename\\?"\s*:\s*\\?"Group\\?"\s*,\s*\\?"id\\?"\s*:\s*\\?"(\d{8,})\\?"/),
+  raw('json:id.Group', /\\?"id\\?"\s*:\s*\\?"(\d{8,})\\?"\s*,\s*\\?"__typename\\?"\s*:\s*\\?"Group\\?"/),
 ];
 
 const POST_RULES: Rule[] = [
@@ -111,6 +115,17 @@ function rulesFor(type: UidTargetType): Rule[] {
     default:
       return PROFILE_RULES;
   }
+}
+
+/** Link tìm thấy (canonical hoặc địa chỉ sau chuyển hướng) có cùng họ loại với loại đang tìm không. */
+export function idFromUrl(href: string, type: UidTargetType): Extracted | null {
+  try {
+    const parsed = parseFacebookUrl(href);
+    if (parsed.uid && ACCEPT[type].includes(parsed.type)) return { id: parsed.uid, pattern: 'redirect-url' };
+  } catch {
+    // không nhận diện được: bỏ qua
+  }
+  return null;
 }
 
 function fromCanonical(html: string, type: UidTargetType): Extracted | null {

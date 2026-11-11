@@ -1,5 +1,7 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { IpService } from '../ip/ip.service';
+import { LimitsService } from '../ip/limits.service';
 import { RedisService } from '../redis/redis.service';
 import { UID_ERROR_CODES, UidResult, toDbTargetType } from '../common/types';
 import {
@@ -23,24 +25,36 @@ const CACHE_PREFIX = 'uid:v2:';
 @Injectable()
 export class UidFinderService {
   private readonly logger = new Logger(UidFinderService.name);
-  private readonly limitPerMinute = Number(process.env.UID_RATE_LIMIT_PER_MINUTE ?? 10);
   private readonly cacheTtl = Number(process.env.UID_CACHE_TTL_SECONDS ?? 86400);
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly facebook: FacebookService,
+    private readonly ips: IpService,
+    private readonly limits: LimitsService,
   ) {}
 
-  async lookup(input: string, ipHash: string): Promise<UidResult> {
+  async lookup(input: string, ipHash: string, ip?: string): Promise<UidResult> {
     const started = Date.now();
+    if (ip) void this.ips.touch(ip);
 
-    // 1. Rate limit theo IP đã băm (cửa sổ 60 giây)
+    // 1. Rate limit theo IP đã băm: theo phút (có thể đặt riêng cho từng IP) và theo giờ.
+    const limits = await this.limits.get();
+    const custom = ip ? await this.ips.customLimit(ip) : null;
+    const perMinute = custom ?? limits.uidPerMinute;
     const bucket = Math.floor(Date.now() / 60000);
     const count = await this.redis
       .incrWithTtl(`rl:uid:${ipHash}:${bucket}`, 70)
       .catch(() => 0);
-    if (count > this.limitPerMinute) {
+    let overHour = false;
+    if (limits.uidPerHour > 0 && custom === null) {
+      const hourCount = await this.redis
+        .incrWithTtl(`rl:uidh:${ipHash}:${Math.floor(Date.now() / 3600000)}`, 3700)
+        .catch(() => 0);
+      overHour = hourCount > limits.uidPerHour;
+    }
+    if (count > perMinute || overHour) {
       await this.log({ input, status: 'RATE_LIMITED', ipHash, started, errorCode: UID_ERROR_CODES.RATE_LIMITED });
       throw this.error(HttpStatus.TOO_MANY_REQUESTS, UID_ERROR_CODES.RATE_LIMITED, 'Bạn thao tác quá nhanh, vui lòng thử lại sau ít phút');
     }

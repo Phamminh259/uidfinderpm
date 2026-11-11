@@ -79,12 +79,14 @@ model PageView {
   referrer    String?
   source      String   @default("direct")
   device      String   @default("desktop")
+  ipHash      String?
   createdAt   DateTime @default(now())
 
   @@index([createdAt])
   @@index([visitorHash, createdAt])
   @@index([sessionId])
   @@index([source])
+  @@index([ipHash, createdAt])
 }
 
 model UidLookup {
@@ -103,6 +105,22 @@ model UidLookup {
   @@index([createdAt])
   @@index([status, createdAt])
   @@index([targetType])
+  @@index([ipHash, createdAt])
+}
+
+/// Địa chỉ IP đã truy cập, dùng cho quản trị: xem thống kê, chặn/bỏ chặn, giới hạn riêng.
+model IpRecord {
+  ipHash         String    @id
+  ip             String
+  firstSeenAt    DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
+  blocked        Boolean   @default(false)
+  blockedAt      DateTime?
+  blockedReason  String?
+  limitPerMinute Int?
+
+  @@index([blocked])
+  @@index([lastSeenAt])
 }
 
 model SiteSetting {

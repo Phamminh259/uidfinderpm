@@ -9,11 +9,11 @@ export const metadata = buildMetadata({
 
 export default function PrivacyPage() {
   return (
-    <PageShell title="Chính sách bảo mật" path="/chinh-sach-bao-mat" intro="Cập nhật lần cuối: 10/11/2026.">
+    <PageShell title="Chính sách bảo mật" path="/chinh-sach-bao-mat" intro="Cập nhật lần cuối: 11/11/2026.">
       <h2>1. Dữ liệu chúng tôi thu thập</h2>
       <ul>
         <li>Đường dẫn Facebook bạn nhập và kết quả tra cứu, kèm thời gian và trạng thái.</li>
-        <li>Địa chỉ IP dưới dạng mã băm một chiều có muối, không lưu IP gốc.</li>
+        <li>Địa chỉ IP: các bản ghi lượt xem và lượt tra cứu chỉ lưu mã băm một chiều có muối. Riêng danh sách IP phục vụ quản trị chống lạm dụng lưu địa chỉ IP gốc, chỉ quản trị viên xem được; IP không còn hoạt động quá 90 ngày sẽ bị xóa khỏi danh sách (trừ IP đang bị chặn).</li>
         <li>Thông tin truy cập cơ bản: trang đã xem, nguồn truy cập, loại thiết bị.</li>
       </ul>
       <p>Chúng tôi không thu thập mật khẩu, cookie hay token Facebook và không yêu cầu bạn đăng nhập Facebook.</p>
